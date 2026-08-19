@@ -857,8 +857,11 @@ async function sendMessage(userText) {
         });
     }
 
+    const recentConversation =
+    conversationHistory.slice(-50);
+
     messagesForQwen.push(
-        ...conversationHistory.slice(-10)
+        ...recentConversation
     );
 
     try {
