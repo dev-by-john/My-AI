@@ -76,21 +76,65 @@ function saveMemory(memory) {
         return;
     }
 
-    const cleanMemory = memory.trim();
+    const cleanMemory =
+        memory.trim();
 
-    if (
-        longTermMemory.some(
-            item =>
-                item.toLowerCase() ===
-                cleanMemory.toLowerCase()
-        )
-    ) {
-        return;
+    const lowerMemory =
+        cleanMemory.toLowerCase();
+
+    const nameMatch =
+        lowerMemory.match(
+            /^my name is\s+(.+)$/i
+        );
+
+    if (nameMatch) {
+
+        const existingIndex =
+            longTermMemory.findIndex(
+                item =>
+                    /^my name is\s+/i.test(
+                        item
+                    )
+            );
+
+        if (existingIndex !== -1) {
+
+            if (
+                longTermMemory[
+                    existingIndex
+                ].toLowerCase() ===
+                lowerMemory
+            ) {
+                return;
+            }
+
+            longTermMemory[
+                existingIndex
+            ] = cleanMemory;
+
+        } else {
+
+            longTermMemory.push(
+                cleanMemory
+            );
+        }
+
+    } else {
+
+        if (
+            longTermMemory.some(
+                item =>
+                    item.toLowerCase() ===
+                    lowerMemory
+            )
+        ) {
+            return;
+        }
+
+        longTermMemory.push(
+            cleanMemory
+        );
     }
-
-    longTermMemory.push(
-        cleanMemory
-    );
 
     localStorage.setItem(
         "burtwabMemory",
@@ -388,7 +432,6 @@ function speakNext() {
         return;
     }
 
-    // Do not start speech if the user pressed Stop
     if (speechWasStopped) {
         return;
     }
@@ -419,7 +462,6 @@ function speakNext() {
 
         isSpeaking = false;
 
-        // Only continue if Stop was NOT pressed
         if (!speechWasStopped) {
             speakNext();
         }
@@ -433,8 +475,6 @@ function speakNext() {
 
         isSpeaking = false;
 
-        // "interrupted" is expected when Stop is pressed.
-        // Do NOT start the next sentence.
         if (!speechWasStopped) {
             speakNext();
         }
