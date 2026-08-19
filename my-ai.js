@@ -78,10 +78,11 @@ function saveMemory(memory) {
 
     const cleanMemory = memory.trim();
 
-    // Don't save duplicates
     if (
-        longTermMemory.includes(
-            cleanMemory
+        longTermMemory.some(
+            item =>
+                item.toLowerCase() ===
+                cleanMemory.toLowerCase()
         )
     ) {
         return;
@@ -111,18 +112,37 @@ function detectMemory(userText) {
 
     const text = userText.trim();
 
-    const patterns = [
+    const explicitPatterns = [
         /^remember(?: that| this)?\s+(.+)/i,
         /^keep in mind(?: that)?\s+(.+)/i,
         /^don't forget(?: that)?\s+(.+)/i,
         /^do not forget(?: that)?\s+(.+)/i
     ];
 
-    for (const pattern of patterns) {
+    for (const pattern of explicitPatterns) {
         const match = text.match(pattern);
 
         if (match && match[1]) {
             return match[1].trim();
+        }
+    }
+
+    const automaticPatterns = [
+        /^my name is\s+(.+)/i,
+        /^i(?:'m| am)\s+learning\s+(.+)/i,
+        /^i(?:'m| am)\s+studying\s+(.+)/i,
+        /^i(?:'m| am)\s+working on\s+(.+)/i,
+        /^i(?:'m| am)\s+building\s+(.+)/i,
+        /^i prefer\s+(.+)/i,
+        /^i like\s+(.+)/i,
+        /^i love\s+(.+)/i
+    ];
+
+    for (const pattern of automaticPatterns) {
+        const match = text.match(pattern);
+
+        if (match && match[1]) {
+            return text;
         }
     }
 
@@ -180,7 +200,6 @@ function getRelevantMemories(userText) {
 }
 
 function handleMemoryRequest(userText) {
-
     const memory =
         detectMemory(userText);
 
@@ -190,12 +209,11 @@ function handleMemoryRequest(userText) {
 
     const confirmed =
         confirm(
-            "🧠 Remember this?\n\n" +
+            "🧠 Save this to long-term memory?\n\n" +
             memory
         );
 
     if (confirmed) {
-
         saveMemory(memory);
 
         console.log(
@@ -203,7 +221,6 @@ function handleMemoryRequest(userText) {
             memory
         );
     } else {
-
         console.log(
             "❌ Memory request cancelled"
         );
