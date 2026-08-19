@@ -87,6 +87,22 @@ function saveMemory(memory) {
             /^my name is\s+(.+)$/i
         );
 
+    const accumulativePatterns = [
+        /^i(?:'m| am)\s+learning\s+/i,
+        /^i(?:'m| am)\s+studying\s+/i,
+        /^i(?:'m| am)\s+working on\s+/i,
+        /^i(?:'m| am)\s+building\s+/i,
+        /^i prefer\s+/i,
+        /^i like\s+/i,
+        /^i love\s+/i
+    ];
+
+    const isAccumulative =
+        accumulativePatterns.some(
+            pattern =>
+                pattern.test(cleanMemory)
+        );
+
     if (nameMatch) {
 
         const existingIndex =
@@ -118,6 +134,22 @@ function saveMemory(memory) {
                 cleanMemory
             );
         }
+
+    } else if (isAccumulative) {
+
+        if (
+            longTermMemory.some(
+                item =>
+                    item.toLowerCase() ===
+                    lowerMemory
+            )
+        ) {
+            return;
+        }
+
+        longTermMemory.push(
+            cleanMemory
+        );
 
     } else {
 
