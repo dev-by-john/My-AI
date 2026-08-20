@@ -49,16 +49,20 @@ const SPEECH_THRESHOLD = 0.025;
 
 let speechQueue = [];
 let isSpeaking = false;
-let femaleVoice = null;
 let speechWasStopped = false;
+
+let currentAudio = null;
+let currentAudioURL = null;
+let currentPiperRequest = null;
+
 let conversationHistory =
     JSON.parse(
-        localStorage.getItem("burtwabConversation") || "[]"
+        localStorage.getItem("AIConversation") || "[]"
     );
 
 let longTermMemory =
     JSON.parse(
-        localStorage.getItem("burtwabMemory") || "[]"
+        localStorage.getItem("AIMemory") || "[]"
     );
 
 console.log(
@@ -169,7 +173,7 @@ function saveMemory(memory) {
     }
 
     localStorage.setItem(
-        "burtwabMemory",
+        "AIMemory",
         JSON.stringify(
             longTermMemory
         )
@@ -449,6 +453,7 @@ speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices();
 
 function speakSentence(sentence) {
+
     if (!sentence || !sentence.trim()) {
         return;
     }
@@ -456,10 +461,13 @@ function speakSentence(sentence) {
     speechWasStopped = false;
 
     speechQueue.push(sentence.trim());
+
     speakNext();
 }
 
-function speakNext() {
+
+async function speakNext() {
+
     if (isSpeaking || speechQueue.length === 0) {
         return;
     }
@@ -472,57 +480,182 @@ function speakNext() {
 
     const sentence = speechQueue.shift();
 
-    console.log("Speaking:", sentence);
+    console.log("🔊 Piper Speaking:", sentence);
 
-    const speech =
-        new SpeechSynthesisUtterance(sentence);
+    try {
 
-    if (femaleVoice) {
-        speech.voice = femaleVoice;
-    }
+        currentPiperRequest =
+            new AbortController();
 
-    speech.lang = "en-US";
-    speech.rate = 1;
-    speech.pitch = 1;
-
-    speech.onstart = function() {
-        console.log("Speech started");
-    };
-
-    speech.onend = function() {
-        console.log("Speech finished");
-
-        isSpeaking = false;
-
-        if (!speechWasStopped) {
-            speakNext();
-        }
-    };
-
-    speech.onerror = function(event) {
-        console.log(
-            "Speech ended:",
-            event.error
+        const response = await fetch(
+            "http://127.0.0.1:8765/speak",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "text/plain"
+                },
+                body: sentence,
+                signal:
+                    currentPiperRequest.signal
+            }
         );
 
+        if (!response.ok) {
+            throw new Error(
+                "Piper server returned " +
+                response.status
+            );
+        }
+
+        const audioBlob =
+            await response.blob();
+
+        if (speechWasStopped) {
+            return;
+        }
+
+        currentAudioURL =
+            URL.createObjectURL(audioBlob);
+
+        currentAudio =
+            new Audio();
+
+        currentAudio.volume = 1;
+
+        currentAudio.preload = "auto";
+
+        currentAudio.onplay = function() {
+            console.log(
+                "🔊 Piper speech started"
+            );
+        };
+
+        currentAudio.onended = function() {
+
+            console.log(
+                "🔊 Piper speech finished"
+            );
+
+            cleanupCurrentAudio();
+
+            isSpeaking = false;
+
+            if (!speechWasStopped) {
+
+                setTimeout(
+                    speakNext,
+                    50
+                );
+            }
+        };
+
+        currentAudio.onerror = function(event) {
+
+            console.error(
+                "❌ Piper audio error:",
+                event
+            );
+
+            cleanupCurrentAudio();
+
+            isSpeaking = false;
+
+            if (!speechWasStopped) {
+                speakNext();
+            }
+        };
+
+        currentAudio.src = currentAudioURL;
+
+        await new Promise((resolve, reject) => {
+
+            currentAudio.oncanplaythrough = resolve;
+
+            currentAudio.onerror = reject;
+
+            currentAudio.load();
+        });
+
+        if (speechWasStopped) {
+            return;
+        }
+
+        await currentAudio.play();
+
+    } catch (error) {
+
+        if (error.name === "AbortError") {
+
+            console.log(
+                "🛑 Piper request cancelled"
+            );
+
+        } else {
+
+            console.error(
+                "❌ Piper error:",
+                error
+            );
+        }
+
+        cleanupCurrentAudio();
+
         isSpeaking = false;
 
-        if (!speechWasStopped) {
+        if (
+            !speechWasStopped &&
+            error.name !== "AbortError"
+        ) {
             speakNext();
         }
-    };
-
-    speechSynthesis.speak(speech);
+    }
 }
 
+
+function cleanupCurrentAudio() {
+
+    if (currentAudio) {
+
+        currentAudio.onplay = null;
+        currentAudio.onended = null;
+        currentAudio.onerror = null;
+
+        currentAudio.pause();
+
+        currentAudio = null;
+    }
+
+    if (currentAudioURL) {
+
+        URL.revokeObjectURL(
+            currentAudioURL
+        );
+
+        currentAudioURL = null;
+    }
+
+    currentPiperRequest = null;
+}
+
+
 function stopSpeaking() {
-    console.log("⏹️ AI speech stopped");
+
+    console.log(
+        "⏹️ AI speech stopped"
+    );
 
     speechWasStopped = true;
 
     speechQueue = [];
 
-    speechSynthesis.cancel();
+    if (currentPiperRequest) {
+
+        currentPiperRequest.abort();
+
+        currentPiperRequest = null;
+    }
+
+    cleanupCurrentAudio();
 
     isSpeaking = false;
 }
@@ -723,30 +856,24 @@ function stopRecording() {
 }
 
 async function transcribeAudio(audioBlob) {
+
     console.log(
-        "Sending audio to Whisper..."
-    );
-
-    const formData = new FormData();
-
-    formData.append(
-        "file",
-        audioBlob,
-        "recording.webm"
+        "🎤 Sending audio to Whisper..."
     );
 
     try {
 
         const response =
             await fetch(
-                "http://127.0.0.1:8081/inference",
+                "http://127.0.0.1:8766/transcribe",
                 {
                     method: "POST",
-                    body: formData
+                    body: audioBlob
                 }
             );
 
         if (!response.ok) {
+
             const errorText =
                 await response.text();
 
@@ -755,33 +882,31 @@ async function transcribeAudio(audioBlob) {
             );
         }
 
-        const result =
-            await response.json();
+        const text =
+            (
+                await response.text()
+            ).trim();
 
         console.log(
-            "Whisper response:",
-            result
+            "📝 Whisper:",
+            text
         );
-
-        if (!result.text) {
-            return;
-        }
-
-        const text =
-            result.text.trim();
 
         if (!text) {
             return;
         }
 
-        inputArea.value = text;
+        inputArea.value =
+            text;
 
-        await sendMessage(text);
+        await sendMessage(
+            text
+        );
 
     } catch (error) {
 
         console.error(
-            "Whisper connection error:",
+            "❌ Whisper connection error:",
             error
         );
     }
@@ -839,27 +964,40 @@ async function sendMessage(userText) {
     getRelevantMemories(userText);
 
     const messagesForQwen = [];
-
+    
+    let systemPrompt = `
+    You are a helpful personal AI assistant.
+    
+    You are speaking directly with the user.
+    
+    Follow these rules:
+    - Answer naturally and conversationally.
+    - Be concise unless the user asks for detail.
+    - Do not claim to be the user.
+    - Do not confuse facts about the user with facts about yourself.
+    - Use memories about the user only when they are relevant.
+    - Never mention the memory system unless the user asks about it.
+    `;
+    
     if (relevantMemories.length > 0) {
-
-        messagesForQwen.push({
-            role: "system",
-            content:
-                "You are an AI assistant.\n\n" +
-
-                "The following are facts about the USER. " +
-                "They are NOT facts about you. " +
-                "Use them only when relevant to the user's question.\n\n" +
-
-                relevantMemories
-                    .map(memory => "- " + memory)
-                    .join("\n")
-        });
+    
+        systemPrompt += `
+    
+    Relevant facts about the USER:
+    ${relevantMemories
+            .map(memory => "- " + memory)
+            .join("\n")}
+    `;
     }
-
+    
+    messagesForQwen.push({
+        role: "system",
+        content: systemPrompt.trim()
+    });
+    
     const recentConversation =
-    conversationHistory.slice(-50);
-
+        conversationHistory.slice(-10);
+    
     messagesForQwen.push(
         ...recentConversation
     );
