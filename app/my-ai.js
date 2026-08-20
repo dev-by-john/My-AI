@@ -45,6 +45,8 @@ let speechWasStopped = false;
 let currentAudio = null;
 let currentAudioURL = null;
 let currentPiperRequest = null;
+let currentWhisperRequest = null;
+let currentQwenRequest = null;
 assistantStopped = false;
 
 let conversationHistory = JSON.parse(
@@ -380,7 +382,7 @@ async function speakNext() {
     currentAudio = new Audio();
 
     currentAudio.volume = 1;
-
+    currentAudio.playbackRate = 1.15;
     currentAudio.preload = "auto";
 
     currentAudio.onplay = function () {
@@ -395,11 +397,7 @@ async function speakNext() {
       isSpeaking = false;
 
       if (!speechWasStopped) {
-        if (speechQueue.length > 0) {
-          setTimeout(speakNext, 50);
-        } else {
-          startListeningAfterResponse();
-        }
+        speakNext();
       }
     };
 
@@ -642,6 +640,21 @@ function stopRecording() {
 
   mediaRecorder.stop();
 
+  if (currentWhisperRequest) {
+    currentWhisperRequest.abort();
+    currentWhisperRequest = null;
+  }
+
+  if (currentQwenRequest) {
+    currentQwenRequest.abort();
+    currentQwenRequest = null;
+  }
+
+  if (currentPiperRequest) {
+    currentPiperRequest.abort();
+    currentPiperRequest = null;
+  }
+
   console.log("🛑 Recording stopped");
 }
 
@@ -649,6 +662,7 @@ async function transcribeAudio(audioBlob) {
   console.log("🎤 Sending audio to Whisper...");
 
   try {
+    currentWhisperRequest = new AbortController();
     const response = await fetch("http://127.0.0.1:8766/transcribe", {
       method: "POST",
       body: audioBlob,
@@ -749,6 +763,7 @@ async function sendMessage(userText) {
   messagesForQwen.push(...recentConversation);
 
   try {
+    currentQwenRequest = new AbortController();
     const response = await fetch("http://127.0.0.1:8080/v1/chat/completions", {
       method: "POST",
 
@@ -777,9 +792,19 @@ async function sendMessage(userText) {
     let buffer = "";
 
     while (true) {
+      if (assistantStopped) {
+        console.log("🛑 Qwen stream cancelled");
+        break;
+      }
+
       const { done, value } = await reader.read();
 
       if (done) {
+        break;
+      }
+
+      if (assistantStopped) {
+        console.log("🛑 Qwen stream cancelled");
         break;
       }
 
@@ -792,6 +817,11 @@ async function sendMessage(userText) {
       buffer = lines.pop() || "";
 
       for (const line of lines) {
+        if (assistantStopped) {
+          console.log("🛑 Qwen stream cancelled");
+          break;
+        }
+
         if (!line.startsWith("data: ")) {
           continue;
         }
@@ -824,7 +854,7 @@ async function sendMessage(userText) {
           while ((sentenceMatch = speechBuffer.match(/^(.+?[.!?])(?:\s+|$)/))) {
             const sentence = sentenceMatch[1].trim();
 
-            if (sentence) {
+            if (sentence && !assistantStopped) {
               speakSentence(sentence);
             }
 
@@ -838,7 +868,7 @@ async function sendMessage(userText) {
       }
     }
 
-    if (speechBuffer.trim()) {
+    if (speechBuffer.trim() && !assistantStopped) {
       speakSentence(speechBuffer.trim());
     }
 
@@ -856,9 +886,10 @@ async function sendMessage(userText) {
 
     console.log("Qwen stream finished");
 
-    qwenResponseFinished = true;
-
-    startListeningAfterResponse();
+    if (!assistantStopped) {
+      qwenResponseFinished = true;
+      startListeningAfterResponse();
+    }
   } catch (error) {
     console.error("Qwen error:", error);
 
@@ -870,6 +901,7 @@ micButton.addEventListener("click", async function () {
   if (isRecording) {
     stopRecording();
   } else {
+    assistantStopped = false;
     await startRecording();
   }
 });
