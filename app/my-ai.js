@@ -36,6 +36,7 @@ const clearHistory =
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
+let qwenResponseFinished = false;
 
 let audioContext = null;
 let analyser = null;
@@ -465,6 +466,22 @@ function speakSentence(sentence) {
     speakNext();
 }
 
+function startListeningAfterResponse() {
+
+    if (
+        qwenResponseFinished &&
+        !isSpeaking &&
+        speechQueue.length === 0 &&
+        !isRecording &&
+        !speechWasStopped
+    ) {
+        qwenResponseFinished = false;
+
+        setTimeout(() => {
+            startRecording();
+        }, 300);
+    }
+}
 
 async function speakNext() {
 
@@ -542,11 +559,15 @@ async function speakNext() {
 
             if (!speechWasStopped) {
 
+            if (speechQueue.length > 0) {
                 setTimeout(
                     speakNext,
                     50
                 );
+            } else {
+                startListeningAfterResponse();
             }
+        }
         };
 
         currentAudio.onerror = function(event) {
@@ -1170,9 +1191,13 @@ async function sendMessage(userText) {
         );
     }
 
-        console.log(
+                console.log(
             "Qwen stream finished"
         );
+
+        qwenResponseFinished = true;
+
+        startListeningAfterResponse();
 
         } catch (error) {
 
